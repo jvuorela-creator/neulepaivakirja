@@ -16,7 +16,7 @@ SCOPES = [
 
 # 2. KORVAA TÄHÄN OMA GOOGLE DRIVE -KANSION ID
 # Löydät sen kansion osoiteriviltä selaimessa (litania lopussa)
-DRIVE_FOLDER_ID = "https://drive.google.com/drive/folders/1GeeN1EBiOEzIFlidWe-zGjOM8OX78Svp" 
+DRIVE_FOLDER_ID = "1GeeN1EBiOEzIFlidWe-zGjOM8OX78Svp" 
 
 
 # --- APUFUNKTIOT ---
@@ -156,3 +156,4 @@ with tab3:
         start_date = st.date_input("Alkupäivämäärä", value=date(2025, 1, 1))
     with col_b:
         end_date = st
+
