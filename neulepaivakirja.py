@@ -1,94 +1,95 @@
 import streamlit as st
 import pandas as pd
 import gspread
+import requests
 from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
 from datetime import date
 
 # --- ASETUKSET ---
 
-# 1. Määritä Googlen oikeudet (Scopes)
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
 ]
 
-# 2. KORVAA TÄHÄN OMA GOOGLE DRIVE -KANSION ID
-# Löydät sen kansion osoiteriviltä selaimessa (litania lopussa)
-DRIVE_FOLDER_ID = "1GeeN1EBiOEzIFlidWe-zGjOM8OX78Svp" 
-
-
 # --- APUFUNKTIOT ---
-
-def get_google_creds():
-    """Hakee tunnukset Streamlitin Secrets-piilosta."""
-    # Varmista, että Secretsissä on otsikko [gcp_service_account]
-    creds_dict = st.secrets["gcp_service_account"]
-    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-    return creds
 
 def get_sheet_client():
     """Yhdistää Google Sheetsiin."""
-    creds = get_google_creds()
-    client = gspread.authorize(creds)
-    return client
+    if "gcp_service_account" in st.secrets:
+        creds_dict = st.secrets["gcp_service_account"]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+        client = gspread.authorize(creds)
+        return client
+    else:
+        st.error("Google-tunnukset puuttuvat Secrets-asetuksista.")
+        return None
 
 def load_data(sheet_name):
-    """Lataa datan tietystä välilehdestä Pandas-taulukkoon."""
+    """Lataa datan."""
     client = get_sheet_client()
-    try:
-        sh = client.open("Neulepäiväkirja") # Taulukon nimi
-        worksheet = sh.worksheet(sheet_name)
-        data = worksheet.get_all_records()
-        return pd.DataFrame(data)
-    except Exception as e:
-        st.error(f"Virhe yhdistettäessä taulukkoon: {e}")
-        return pd.DataFrame()
+    if client:
+        try:
+            sh = client.open("Neulepäiväkirja")
+            worksheet = sh.worksheet(sheet_name)
+            data = worksheet.get_all_records()
+            return pd.DataFrame(data)
+        except Exception as e:
+            st.error(f"Virhe taulukon avaamisessa: {e}")
+    return pd.DataFrame()
 
 def add_row(sheet_name, row_data):
-    """Lisää uuden rivin taulukkoon."""
+    """Lisää rivin."""
     client = get_sheet_client()
-    sh = client.open("Neulepäiväkirja")
-    worksheet = sh.worksheet(sheet_name)
-    worksheet.append_row(row_data)
+    if client:
+        sh = client.open("Neulepäiväkirja")
+        worksheet = sh.worksheet(sheet_name)
+        worksheet.append_row(row_data)
 
-def upload_image_to_drive(file_obj):
-    """Lataa kuvan Google Driveen ja palauttaa linkin."""
+def upload_image_to_imgbb(file_obj):
+    """Lataa kuvan ImgBB-palveluun ja palauttaa linkin."""
     try:
-        creds = get_google_creds()
-        service = build('drive', 'v3', credentials=creds)
+        # Haetaan avain
+        if "imgbb_api_key" not in st.secrets:
+            st.error("ImgBB API-avain puuttuu asetuksista!")
+            return "Virhe: Avain puuttuu"
+
+        api_key = st.secrets["imgbb_api_key"]
+        url = "https://api.imgbb.com/1/upload"
         
-        file_metadata = {
-            'name': file_obj.name,
-            'parents': [DRIVE_FOLDER_ID]
+        # Valmistellaan lähetys
+        payload = {
+            "key": api_key,
+        }
+        files = {
+            "image": file_obj.getvalue()
         }
         
-        media = MediaIoBaseUpload(file_obj, mimetype=file_obj.type)
+        # Lähetetään
+        response = requests.post(url, data=payload, files=files)
         
-        file = service.files().create(
-            body=file_metadata, 
-            media_body=media, 
-            fields='id, webViewLink'
-        ).execute()
-        
-        return file.get('webViewLink')
+        if response.status_code == 200:
+            json_data = response.json()
+            # Haetaan 'url' data-objektin sisältä
+            return json_data['data']['url']
+        else:
+            st.error(f"Virhe ImgBB-latauksessa: {response.status_code}")
+            return "Latausvirhe"
+            
     except Exception as e:
-        st.error(f"Virhe kuvan latauksessa: {e}")
-        return "Virhe latauksessa"
+        st.error(f"Virhe: {e}")
+        return "Virhe"
 
 # --- KÄYTTÖLIITTYMÄ ---
 
 st.set_page_config(page_title="Neulepäiväkirja", layout="wide")
 st.title("🧶 Neulepäiväkirja")
 
-# Luodaan välilehdet
 tab1, tab2, tab3 = st.tabs(["Lankavarasto (Ostot)", "Valmiit työt", "Raportit"])
 
 # --- TAB 1: LANKAVARASTO ---
 with tab1:
     st.header("Kirjaa uusi lankaostos")
-    
     with st.form("lanka_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
         with col1:
@@ -96,21 +97,17 @@ with tab1:
             merkki = st.text_input("Langan merkki/nimi")
             vari = st.text_input("Väri/Värikoodi")
         with col2:
-            materiaali = st.text_input("Materiaali (esim. 75% villa)")
+            materiaali = st.text_input("Materiaali")
             paino = st.number_input("Paino (g)", min_value=0, step=50)
             hinta = st.number_input("Hinta (€)", min_value=0.0, step=0.5)
         
-        submitted_lanka = st.form_submit_button("Tallenna lanka")
-        
-        if submitted_lanka:
-            # Tallenna Google Sheetiin (Välilehti: 'Langat')
+        if st.form_submit_button("Tallenna lanka"):
             row = [str(osto_pvm), merkki, vari, materiaali, paino, hinta]
             add_row("Langat", row)
-            st.success(f"Lisätty: {merkki} ({vari})")
+            st.success(f"Lisätty: {merkki}")
 
     st.divider()
-    st.subheader("Lankavaraston tilanne")
-    # Ladataan data vain jos välilehti on auki (optimointi)
+    st.subheader("Varasto")
     df_langat = load_data("Langat")
     if not df_langat.empty:
         st.dataframe(df_langat)
@@ -118,42 +115,66 @@ with tab1:
 # --- TAB 2: VALMIIT TYÖT ---
 with tab2:
     st.header("Kirjaa valmistunut työ")
-    
     types = ["Sukat", "Lapaset", "Pipo", "Paita", "Kaulaliina", "Muu"]
     
     with st.form("tyo_form", clear_on_submit=True):
-        tyo_pvm = st.date_input("Valmistumispäivä", key="tyo_date")
+        tyo_pvm = st.date_input("Valmistumispäivä")
         tyyppi = st.selectbox("Työn tyyppi", types)
-        lanka_kaytetty = st.text_input("Käytetty lanka (Merkki/Väri)")
-        menekki = st.number_input("Langan menekki (g)", min_value=0)
-        lisatietoja = st.text_area("Muistiinpanot (puikkokoko, ohje...)")
+        lanka_kaytetty = st.text_input("Käytetty lanka")
+        menekki = st.number_input("Menekki (g)", min_value=0)
+        lisatietoja = st.text_area("Muistiinpanot")
         
-        # Kuvan lataus
-        uploaded_file = st.file_uploader("Lataa kuva työstä", type=['png', 'jpg', 'jpeg'])
+        uploaded_file = st.file_uploader("Kuva työstä", type=['png', 'jpg', 'jpeg'])
         
-        submitted_tyo = st.form_submit_button("Tallenna työ")
-        
-        if submitted_tyo:
+        if st.form_submit_button("Tallenna työ"):
             image_link = "Ei kuvaa"
             
-            # Jos kuva on ladattu, lähetetään se Driveen
             if uploaded_file is not None:
-                with st.spinner('Tallennetaan kuvaa pilveen...'):
-                    image_link = upload_image_to_drive(uploaded_file)
+                with st.spinner('Ladataan kuvaa pilveen...'):
+                    image_link = upload_image_to_imgbb(uploaded_file)
             
             row = [str(tyo_pvm), tyyppi, lanka_kaytetty, menekki, lisatietoja, image_link]
             add_row("Työt", row)
-            st.success("Työ tallennettu onnistuneesti!")
+            
+            if image_link.startswith("http"):
+                st.success("Työ tallennettu!")
+                st.image(image_link, width=200)
+            else:
+                st.warning("Työ tallennettu ilman kuvaa.")
 
 # --- TAB 3: RAPORTIT ---
 with tab3:
     st.header("Raportointi")
     
-    st.info("Valitse ajanjakso tarkastellaksesi ostoja ja valmistuneita töitä.")
-    
     col_a, col_b = st.columns(2)
     with col_a:
-        start_date = st.date_input("Alkupäivämäärä", value=date(2025, 1, 1))
+        start_date = pd.to_datetime(st.date_input("Alku", value=date(2025, 1, 1)))
     with col_b:
-        end_date = st
+        end_date = pd.to_datetime(st.date_input("Loppu", value=date.today()))
 
+    st.divider()
+    
+    st.subheader("🧶 Valmistuneet työt")
+    df_tyot = load_data("Työt")
+    
+    if not df_tyot.empty:
+        df_tyot['Valmistumispäivä'] = pd.to_datetime(df_tyot['Valmistumispäivä'])
+        mask = (df_tyot['Valmistumispäivä'] >= start_date) & (df_tyot['Valmistumispäivä'] <= end_date)
+        df_filtered = df_tyot.loc[mask]
+        
+        # Näytetään taulukko (piilotetaan raaka linkki jos halutaan siistimpi)
+        st.dataframe(df_filtered)
+        
+        st.write("### Kuvagalleria")
+        
+        # Loopataan rivit ja näytetään kuvat
+        # Käytetään sarakkeita (cols) jotta kuvat tulevat vierekkäin
+        cols = st.columns(3)
+        for index, row in df_filtered.iterrows():
+            linkki = str(row['Kuvalinkki'])
+            if linkki.startswith("http"):
+                # Valitaan sarake (0, 1 tai 2) jakojäännöksellä
+                with cols[index % 3]:
+                    st.image(linkki, caption=f"{row['Työn tyyppi']} ({row['Valmistumispäivä'].date()})")
+    else:
+        st.write("Ei töitä valitulla ajanjaksolla.")
