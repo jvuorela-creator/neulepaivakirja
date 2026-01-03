@@ -1,33 +1,44 @@
 import streamlit as st
 import pandas as pd
 import gspread
+from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
-from google.oauth2.service_account import Credentials
 from datetime import date
 
 # --- ASETUKSET ---
+
+# 1. Määritä Googlen oikeudet (Scopes)
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
 ]
 
-def get_google_client():
-    # MUUTOS: Luetaan tunnukset Streamlitin Secrets-muistista
-    # Eikä paikallisesta tiedostosta.
-    # st.secrets["gcp_service_account"] vastaa JSON-tiedoston sisältöä
+# 2. KORVAA TÄHÄN OMA GOOGLE DRIVE -KANSION ID
+# Löydät sen kansion osoiteriviltä selaimessa (litania lopussa)
+DRIVE_FOLDER_ID = "https://drive.google.com/drive/folders/1GeeN1EBiOEzIFlidWe-zGjOM8OX78Svp" 
+
+
+# --- APUFUNKTIOT ---
+
+def get_google_creds():
+    """Hakee tunnukset Streamlitin Secrets-piilosta."""
+    # Varmista, että Secretsissä on otsikko [gcp_service_account]
     creds_dict = st.secrets["gcp_service_account"]
-    
     creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    return creds
+
+def get_sheet_client():
+    """Yhdistää Google Sheetsiin."""
+    creds = get_google_creds()
     client = gspread.authorize(creds)
     return client
 
-# ... loppuosa koodista pysyy samana (load_data, add_row ja käyttöliittymä) ...
-# Funktio datan hakemiseen
 def load_data(sheet_name):
-    client = get_google_client()
+    """Lataa datan tietystä välilehdestä Pandas-taulukkoon."""
+    client = get_sheet_client()
     try:
-        sh = client.open("Neulepäiväkirja") # Taulukon nimi Google Drivessa
+        sh = client.open("Neulepäiväkirja") # Taulukon nimi
         worksheet = sh.worksheet(sheet_name)
         data = worksheet.get_all_records()
         return pd.DataFrame(data)
@@ -35,41 +46,36 @@ def load_data(sheet_name):
         st.error(f"Virhe yhdistettäessä taulukkoon: {e}")
         return pd.DataFrame()
 
-# Funktio datan lisäämiseen
 def add_row(sheet_name, row_data):
-    client = get_google_client()
+    """Lisää uuden rivin taulukkoon."""
+    client = get_sheet_client()
     sh = client.open("Neulepäiväkirja")
     worksheet = sh.worksheet(sheet_name)
     worksheet.append_row(row_data)
 
-# --- LISÄÄ TÄMÄ FUNKTIO add_row-FUNKTION ALAPUOLELLE ---
-
 def upload_image_to_drive(file_obj):
-    # HUOM: Tämän rivin edessä pitää olla tyhjää tilaa!
-    creds_dict = st.secrets["gcp_service_account"]
-    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-    
-    # Rakennetaan Drive-palvelu
-    service = build('drive', 'v3', credentials=creds)
-    
-    # KORVAA TÄHÄN ALAS OMA KANSIO-ID GOOGLE DRIVESTA
-    folder_id = "12345ABCDE_esimerkki_kansio_id" 
-    
-    file_metadata = {
-        'name': file_obj.name,
-        'parents': [folder_id]
-    }
-    
-    media = MediaIoBaseUpload(file_obj, mimetype=file_obj.type)
-    
-    # Lähetetään tiedosto
-    file = service.files().create(
-        body=file_metadata, 
-        media_body=media, 
-        fields='id, webViewLink'
-    ).execute()
-    
-    return file.get('webViewLink')
+    """Lataa kuvan Google Driveen ja palauttaa linkin."""
+    try:
+        creds = get_google_creds()
+        service = build('drive', 'v3', credentials=creds)
+        
+        file_metadata = {
+            'name': file_obj.name,
+            'parents': [DRIVE_FOLDER_ID]
+        }
+        
+        media = MediaIoBaseUpload(file_obj, mimetype=file_obj.type)
+        
+        file = service.files().create(
+            body=file_metadata, 
+            media_body=media, 
+            fields='id, webViewLink'
+        ).execute()
+        
+        return file.get('webViewLink')
+    except Exception as e:
+        st.error(f"Virhe kuvan latauksessa: {e}")
+        return "Virhe latauksessa"
 
 # --- KÄYTTÖLIITTYMÄ ---
 
@@ -100,39 +106,11 @@ with tab1:
             # Tallenna Google Sheetiin (Välilehti: 'Langat')
             row = [str(osto_pvm), merkki, vari, materiaali, paino, hinta]
             add_row("Langat", row)
-
-            
             st.success(f"Lisätty: {merkki} ({vari})")
 
-    def upload_image_to_drive(file_obj):
-    # Käytetään samoja tunnuksia kuin aiemmin
-    creds_dict = st.secrets["gcp_service_account"]
-    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-    
-    # Rakennetaan Drive-palvelu
-    service = build('drive', 'v3', credentials=creds)
-    
-    # Määritellään tiedoston tiedot
-    # KORVAA TÄMÄ OMALLA KANSIO-ID:LLÄSI:
-    folder_id = "https://drive.google.com/drive/folders/1GeeN1EBiOEzIFlidWe-zGjOM8OX78Svp" 
-    
-    file_metadata = {
-        'name': file_obj.name,
-        'parents': [folder_id]
-    }
-    
-    media = MediaIoBaseUpload(file_obj, mimetype=file_obj.type)
-    
-    # Lähetetään tiedosto
-    file = service.files().create(
-        body=file_metadata, 
-        media_body=media, 
-        fields='id, webViewLink'
-    ).execute()
-    
-    return file.get('webViewLink')
     st.divider()
     st.subheader("Lankavaraston tilanne")
+    # Ladataan data vain jos välilehti on auki (optimointi)
     df_langat = load_data("Langat")
     if not df_langat.empty:
         st.dataframe(df_langat)
@@ -158,15 +136,14 @@ with tab2:
         if submitted_tyo:
             image_link = "Ei kuvaa"
             
+            # Jos kuva on ladattu, lähetetään se Driveen
             if uploaded_file is not None:
                 with st.spinner('Tallennetaan kuvaa pilveen...'):
-                    # Kutsutaan uutta funktiota
                     image_link = upload_image_to_drive(uploaded_file)
             
-            # Tallennetaan linkki taulukkoon
             row = [str(tyo_pvm), tyyppi, lanka_kaytetty, menekki, lisatietoja, image_link]
             add_row("Työt", row)
-            st.success("Työ ja kuva tallennettu onnistuneesti!")
+            st.success("Työ tallennettu onnistuneesti!")
 
 # --- TAB 3: RAPORTIT ---
 with tab3:
@@ -178,50 +155,4 @@ with tab3:
     with col_a:
         start_date = st.date_input("Alkupäivämäärä", value=date(2025, 1, 1))
     with col_b:
-        end_date = st.date_input("Loppupäivämäärä", value=date.today())
-
-    # Muutetaan pvm vertailukelpoiseksi
-    start_date = pd.to_datetime(start_date)
-    end_date = pd.to_datetime(end_date)
-
-    st.divider()
-    
-    # 1. LANKARAPORTTI
-    st.subheader("📦 Ostetut langat valitulla ajanjaksolla")
-    df_langat = load_data("Langat")
-    
-    if not df_langat.empty:
-        # Varmistetaan että pvm-sarake on datetime-muodossa
-        df_langat['Ostopäivä'] = pd.to_datetime(df_langat['Ostopäivä'])
-        
-        mask = (df_langat['Ostopäivä'] >= start_date) & (df_langat['Ostopäivä'] <= end_date)
-        df_filtered_langat = df_langat.loc[mask]
-        
-        st.dataframe(df_filtered_langat)
-        st.metric("Lankaa ostettu yhteensä (g)", f"{df_filtered_langat['Paino (g)'].sum()} g")
-        st.metric("Rahaa käytetty (€)", f"{df_filtered_langat['Hinta (€)'].sum()} €")
-    else:
-        st.write("Ei dataa.")
-
-    st.divider()
-
-    # 2. TYÖRAPORTTI
-    st.subheader("🧶 Valmistuneet työt valitulla ajanjaksolla")
-    df_tyot = load_data("Työt")
-    
-    if not df_tyot.empty:
-        df_tyot['Valmistumispäivä'] = pd.to_datetime(df_tyot['Valmistumispäivä'])
-        
-        mask_tyot = (df_tyot['Valmistumispäivä'] >= start_date) & (df_tyot['Valmistumispäivä'] <= end_date)
-        df_filtered_tyot = df_tyot.loc[mask_tyot]
-        
-        st.dataframe(df_filtered_tyot)
-        
-        # Yhteenveto tyypeittäin
-        st.write("**Yhteenveto tyypeittäin:**")
-        st.bar_chart(df_filtered_tyot['Työn tyyppi'].value_counts())
-    else:
-
-        st.write("Ei valmistuneita töitä tällä ajanjaksolla.")
-
-
+        end_date = st
