@@ -71,8 +71,37 @@ with tab1:
             # Tallenna Google Sheetiin (Välilehti: 'Langat')
             row = [str(osto_pvm), merkki, vari, materiaali, paino, hinta]
             add_row("Langat", row)
+
+            
             st.success(f"Lisätty: {merkki} ({vari})")
 
+    def upload_image_to_drive(file_obj):
+    # Käytetään samoja tunnuksia kuin aiemmin
+    creds_dict = st.secrets["gcp_service_account"]
+    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    
+    # Rakennetaan Drive-palvelu
+    service = build('drive', 'v3', credentials=creds)
+    
+    # Määritellään tiedoston tiedot
+    # KORVAA TÄMÄ OMALLA KANSIO-ID:LLÄSI:
+    folder_id = "https://drive.google.com/drive/folders/1GeeN1EBiOEzIFlidWe-zGjOM8OX78Svp" 
+    
+    file_metadata = {
+        'name': file_obj.name,
+        'parents': [folder_id]
+    }
+    
+    media = MediaIoBaseUpload(file_obj, mimetype=file_obj.type)
+    
+    # Lähetetään tiedosto
+    file = service.files().create(
+        body=file_metadata, 
+        media_body=media, 
+        fields='id, webViewLink'
+    ).execute()
+    
+    return file.get('webViewLink')
     st.divider()
     st.subheader("Lankavaraston tilanne")
     df_langat = load_data("Langat")
@@ -99,15 +128,16 @@ with tab2:
         
         if submitted_tyo:
             image_link = "Ei kuvaa"
-            # Tässä olisi koodi kuvan tallennukseen Google Driveen API:n kautta
-            # Yksinkertaistuksen vuoksi tässä esimerkissä emme aja varsinaista uploadia
-            if uploaded_file is not None:
-                image_link = f"Tallennettu: {uploaded_file.name}" 
-                # Oikeassa toteutuksessa tässä kutsuttaisiin Drive API upload-funktiota
             
+            if uploaded_file is not None:
+                with st.spinner('Tallennetaan kuvaa pilveen...'):
+                    # Kutsutaan uutta funktiota
+                    image_link = upload_image_to_drive(uploaded_file)
+            
+            # Tallennetaan linkki taulukkoon
             row = [str(tyo_pvm), tyyppi, lanka_kaytetty, menekki, lisatietoja, image_link]
             add_row("Työt", row)
-            st.success("Työ tallennettu onnistuneesti!")
+            st.success("Työ ja kuva tallennettu onnistuneesti!")
 
 # --- TAB 3: RAPORTIT ---
 with tab3:
@@ -164,3 +194,4 @@ with tab3:
     else:
 
         st.write("Ei valmistuneita töitä tällä ajanjaksolla.")
+
