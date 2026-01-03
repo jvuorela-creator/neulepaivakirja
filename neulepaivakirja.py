@@ -42,6 +42,35 @@ def add_row(sheet_name, row_data):
     worksheet = sh.worksheet(sheet_name)
     worksheet.append_row(row_data)
 
+# --- LISÄÄ TÄMÄ FUNKTIO add_row-FUNKTION ALAPUOLELLE ---
+
+def upload_image_to_drive(file_obj):
+    # HUOM: Tämän rivin edessä pitää olla tyhjää tilaa!
+    creds_dict = st.secrets["gcp_service_account"]
+    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    
+    # Rakennetaan Drive-palvelu
+    service = build('drive', 'v3', credentials=creds)
+    
+    # KORVAA TÄHÄN ALAS OMA KANSIO-ID GOOGLE DRIVESTA
+    folder_id = "12345ABCDE_esimerkki_kansio_id" 
+    
+    file_metadata = {
+        'name': file_obj.name,
+        'parents': [folder_id]
+    }
+    
+    media = MediaIoBaseUpload(file_obj, mimetype=file_obj.type)
+    
+    # Lähetetään tiedosto
+    file = service.files().create(
+        body=file_metadata, 
+        media_body=media, 
+        fields='id, webViewLink'
+    ).execute()
+    
+    return file.get('webViewLink')
+
 # --- KÄYTTÖLIITTYMÄ ---
 
 st.set_page_config(page_title="Neulepäiväkirja", layout="wide")
@@ -194,4 +223,5 @@ with tab3:
     else:
 
         st.write("Ei valmistuneita töitä tällä ajanjaksolla.")
+
 
