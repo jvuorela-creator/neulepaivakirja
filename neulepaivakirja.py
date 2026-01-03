@@ -100,8 +100,22 @@ with tab1:
             materiaali = st.text_input("Materiaali")
             paino = st.number_input("Paino (g)", min_value=0, step=50)
             hinta = st.number_input("Hinta (€)", min_value=0.0, step=0.5)
-            vahvuus = st.text_input("Vahvuus")
-
+# Määritellään vaihtoehdot listana
+        vahvuus_vaihtoehdot = [
+            "Cobbweb (n. 1000m/100g)",
+            "Lace (n. 800m/100g)",
+            "Fingering (n. 400m/100g)",
+            "Sport (n. 300m/100g)",
+            "DK (n. 200-250m/100g)",
+            "Worsted (n. 200m/100g)",
+            "Aran (n. 150-180m/100g)",
+            "Bulky/Chunky (n. 100-120m/100g)",
+            "Super Bulky (n. 50-80m/100g)",
+            
+        ]
+        
+        # Luodaan alasvetovalikko
+        vahvuus = st.selectbox("Vahvuus", vahvuus_vaihtoehdot)
         
         if st.form_submit_button("Tallenna lanka"):
             row = [str(osto_pvm), merkki, vari, materiaali, paino, hinta]
@@ -180,6 +194,7 @@ with tab3:
                     st.image(linkki, caption=f"{row['Työn tyyppi']} ({row['Valmistumispäivä'].date()})")
     else:
         st.write("Ei töitä valitulla ajanjaksolla.")
+
 
 
 
