@@ -100,7 +100,7 @@ with tab1:
             materiaali = st.text_input("Materiaali")
             paino = st.number_input("Paino (g)", min_value=0, step=50)
             hinta = st.number_input("Hinta (€)", min_value=0.0, step=0.5)
-            vahvuus = st.number_input("Vahvuus", min_value=0.0, step=0.5)
+            vahvuus = st.text_input("Vahvuus")
 
         
         if st.form_submit_button("Tallenna lanka"):
@@ -180,6 +180,7 @@ with tab3:
                     st.image(linkki, caption=f"{row['Työn tyyppi']} ({row['Valmistumispäivä'].date()})")
     else:
         st.write("Ei töitä valitulla ajanjaksolla.")
+
 
 
 
