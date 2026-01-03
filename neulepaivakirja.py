@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import gspread
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
 from google.oauth2.service_account import Credentials
 from datetime import date
 
@@ -160,4 +162,5 @@ with tab3:
         st.write("**Yhteenveto tyypeittäin:**")
         st.bar_chart(df_filtered_tyot['Työn tyyppi'].value_counts())
     else:
+
         st.write("Ei valmistuneita töitä tällä ajanjaksolla.")
